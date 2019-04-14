@@ -3963,6 +3963,12 @@ BOOL WINAPI UpdateLayeredWindowIndirect( HWND hwnd, const UPDATELAYEREDWINDOWINF
         return FALSE;
     }
 
+    if (info->dwFlags == ULW_ALPHA)
+    {
+        ShowWindow( hwnd, SW_HIDE );
+        return TRUE;
+    }
+
     WIN_GetRectangles( hwnd, COORDS_PARENT, &window_rect, &client_rect );
 
     if (info->pptDst)
