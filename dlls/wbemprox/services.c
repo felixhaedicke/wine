@@ -272,12 +272,13 @@ static HRESULT WINAPI wbem_services_OpenNamespace(
 {
     static const WCHAR cimv2W[] = {'c','i','m','v','2',0};
     static const WCHAR defaultW[] = {'d','e','f','a','u','l','t',0};
+    static const WCHAR wmiW[] = {'w','m','i',0};
     struct wbem_services *ws = impl_from_IWbemServices( iface );
 
     TRACE("%p, %s, 0x%08x, %p, %p, %p\n", iface, debugstr_w(strNamespace), lFlags,
           pCtx, ppWorkingNamespace, ppResult);
 
-    if ((wcsicmp( strNamespace, cimv2W ) && wcsicmp( strNamespace, defaultW )) || ws->namespace)
+    if ((wcsicmp( strNamespace, cimv2W ) && wcsicmp( strNamespace, defaultW ) && wcsicmp( strNamespace, wmiW )) || ws->namespace)
         return WBEM_E_INVALID_NAMESPACE;
 
     return WbemServices_create( cimv2W, (void **)ppWorkingNamespace );
