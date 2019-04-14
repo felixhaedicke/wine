@@ -3950,6 +3950,10 @@ BOOL WINAPI GetLayeredWindowAttributes( HWND hwnd, COLORREF *key, BYTE *alpha, D
  */
 BOOL WINAPI UpdateLayeredWindowIndirect( HWND hwnd, const UPDATELAYEREDWINDOWINFO *info )
 {
+#if 1
+    ShowWindow(hwnd, SW_HIDE);
+    return TRUE;
+#else
     DWORD flags = SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW;
     RECT window_rect, client_rect;
     SIZE offset;
@@ -4002,6 +4006,7 @@ BOOL WINAPI UpdateLayeredWindowIndirect( HWND hwnd, const UPDATELAYEREDWINDOWINF
 
     set_window_pos( hwnd, 0, flags, &window_rect, &client_rect, NULL );
     return TRUE;
+#endif
 }
 
 
