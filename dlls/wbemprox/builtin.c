@@ -127,6 +127,8 @@ static const WCHAR class_systemenclosureW[] =
     {'W','i','n','3','2','_','S','y','s','t','e','m','E','n','c','l','o','s','u','r','e',0};
 static const WCHAR class_videocontrollerW[] =
     {'W','i','n','3','2','_','V','i','d','e','o','C','o','n','t','r','o','l','l','e','r',0};
+static const WCHAR class_raw_smbios_tablesW[] =
+    {'M','S','S','m','B','i','o','s','_','R','a','w','S','M','B','i','o','s','T','a','b','l','e','s',0};
 
 static const WCHAR prop_accountnameW[] =
     {'A','c','c','o','u','n','t','N','a','m','e',0};
@@ -432,6 +434,16 @@ static const WCHAR prop_volumeserialnumberW[] =
     {'V','o','l','u','m','e','S','e','r','i','a','l','N','u','m','b','e','r',0};
 static const WCHAR prop_workingsetsizeW[] =
     {'W','o','r','k','i','n','g','S','e','t','S','i','z','e',0};
+static const WCHAR prop_activeW[] =
+    {'A','c','t','i','v','e',0};
+static const WCHAR prop_dmi_revisionW[] =
+    {'D','m','i','R','e','v','i','s','i','o','n',0};
+static const WCHAR prop_instance_nameW[] =
+    {'I','n','s','t','a','n','c','e','N','a','m','e',0};
+static const WCHAR prop_smbios_dataW[] =
+    {'S','M','B','i','o','s','D','a','t','a',0};
+static const WCHAR prop_used_20_calling_method[] =
+    {'U','s','e','d','2','0','C','a','l','l','i','n','g','M','e','t','h','o','d',0};
 
 /* column definitions must be kept in sync with record structures below */
 static const struct column col_baseboard[] =
@@ -760,6 +772,17 @@ static const struct column col_videocontroller[] =
     { prop_videomemorytypeW,        CIM_UINT16, VT_I4 },
     { prop_videomodedescriptionW,   CIM_STRING|COL_FLAG_DYNAMIC },
     { prop_videoprocessorW,         CIM_STRING|COL_FLAG_DYNAMIC },
+};
+static const struct column col_raw_smbios_tables[] =
+{
+    { prop_activeW,                 CIM_BOOLEAN },
+    { prop_dmi_revisionW,           CIM_UINT8, VT_UI1 },
+    { prop_instance_nameW,          CIM_STRING },
+    { prop_sizeW,                   CIM_SINT32, VT_I4 },
+    { prop_smbios_dataW,            CIM_UINT8|CIM_FLAG_ARRAY|COL_FLAG_DYNAMIC },
+    { prop_smbiosmajorversionW,     CIM_UINT8, VT_UI1 },
+    { prop_smbiosminorversionW,     CIM_UINT8, VT_UI1 },
+    { prop_used_20_calling_method,  CIM_BOOLEAN },
 };
 
 static const WCHAR baseboard_manufacturerW[] =
@@ -1187,6 +1210,17 @@ struct record_videocontroller
     const WCHAR *videomodedescription;
     const WCHAR *videoprocessor;
 };
+struct record_raw_smbios_tables
+{
+    BOOL         active;
+    UINT8        dmi_revision;
+    const WCHAR *instance_name;
+    INT32        size;
+    const struct array *data;
+    UINT8        major_version;
+    UINT8        minor_version;
+    BOOL         used_20_calling_method;
+};
 #include "poppack.h"
 
 static const struct record_baseboard data_baseboard[] =
@@ -1274,6 +1308,28 @@ static const struct record_systemenclosure data_systemenclosure[] =
 static const struct record_systemsecurity data_systemsecurity[] =
 {
     { security_get_sd, security_set_sd }
+};
+static BYTE raw_smbios[] =
+{
+    0,
+};
+static const struct array raw_smbios_data_array =
+{
+    1,
+    &raw_smbios
+};
+static const struct record_raw_smbios_tables data_raw_smbios_tables[] =
+{
+    {
+        TRUE,
+        0,
+        prop_smbios_dataW,
+        1,
+        &raw_smbios_data_array,
+        2,
+        7,
+        FALSE,
+    }
 };
 
 /* check if row matches condition and update status */
@@ -3634,7 +3690,8 @@ static struct table builtin_classes[] =
     { class_stdregprovW, ARRAY_SIZE(col_stdregprov), col_stdregprov, ARRAY_SIZE(data_stdregprov), 0, (BYTE *)data_stdregprov },
     { class_systemsecurityW, ARRAY_SIZE(col_systemsecurity), col_systemsecurity, ARRAY_SIZE(data_systemsecurity), 0, (BYTE *)data_systemsecurity },
     { class_systemenclosureW, ARRAY_SIZE(col_systemenclosure), col_systemenclosure, ARRAY_SIZE(data_systemenclosure), 0, (BYTE *)data_systemenclosure },
-    { class_videocontrollerW, ARRAY_SIZE(col_videocontroller), col_videocontroller, 0, 0, NULL, fill_videocontroller }
+    { class_videocontrollerW, ARRAY_SIZE(col_videocontroller), col_videocontroller, 0, 0, NULL, fill_videocontroller },
+    { class_raw_smbios_tablesW, ARRAY_SIZE(col_raw_smbios_tables), col_raw_smbios_tables, ARRAY_SIZE(data_raw_smbios_tables), 0, (BYTE *)data_raw_smbios_tables }
 };
 
 void init_table_list( void )
