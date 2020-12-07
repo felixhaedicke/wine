@@ -115,6 +115,7 @@ static const struct object_ops dir_ops =
     add_queue,                /* add_queue */
     remove_queue,             /* remove_queue */
     default_fd_signaled,      /* signaled */
+    default_fd_get_fsync_idx, /* get_fsync_idx */
     no_satisfied,             /* satisfied */
     no_signal,                /* signal */
     dir_get_fd,               /* get_fd */
@@ -621,11 +622,11 @@ static struct inode *inode_add( struct inode *parent,
                                 dev_t dev, ino_t ino, const char *name )
 {
     struct inode *inode;
- 
+
     inode = get_inode( dev, ino );
     if (!inode)
         return NULL;
- 
+
     if (!inode->parent)
     {
         list_add_tail( &parent->children, &inode->ch_entry );
@@ -757,7 +758,7 @@ static char *inode_get_path( struct inode *inode, int sz )
     path = inode_get_path( inode->parent, sz + len + 1 );
     if (!path)
         return NULL;
-    
+
     strcat( path, inode->name );
     strcat( path, "/" );
 
@@ -841,7 +842,7 @@ static void inotify_notify_all( struct inotify_event *ie )
     }
 
     filter = filter_from_event( ie );
-    
+
     if (ie->mask & IN_CREATE)
     {
         if (ie->mask & IN_ISDIR)

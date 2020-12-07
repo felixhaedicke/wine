@@ -87,6 +87,7 @@ AC_ARG_WITH(usb,       AS_HELP_STRING([--without-usb],[do not use the libusb lib
 AC_ARG_WITH(v4l2,      AS_HELP_STRING([--without-v4l2],[do not use v4l2 (video capture)]))
 AC_ARG_WITH(vkd3d,     AS_HELP_STRING([--without-vkd3d],[do not use vkd3d (Direct3D 12 support)]))
 AC_ARG_WITH(vulkan,    AS_HELP_STRING([--without-vulkan],[do not use Vulkan]))
+AC_ARG_WITH(xattr,     AS_HELP_STRING([--without-xattr],[do not use xattr (security attributes support)]))
 AC_ARG_WITH(xcomposite,AS_HELP_STRING([--without-xcomposite],[do not use the Xcomposite extension]),
             [if test "x$withval" = "xno"; then ac_cv_header_X11_extensions_Xcomposite_h=no; fi])
 AC_ARG_WITH(xcursor,   AS_HELP_STRING([--without-xcursor],[do not use the Xcursor extension]),
@@ -488,6 +489,7 @@ AC_CHECK_HEADERS(\
 	sys/cdio.h \
 	sys/epoll.h \
 	sys/event.h \
+	sys/eventfd.h \
 	sys/filio.h \
 	sys/ioctl.h \
 	sys/ipc.h \
@@ -686,6 +688,20 @@ AC_CHECK_HEADERS([libprocstat.h],,,
 #ifdef HAVE_SYS_SOCKET_H
 #include <sys/socket.h>
 #endif])
+
+if test "x$with_xattr" != "xno"
+then
+    AC_CHECK_HEADERS(attr/xattr.h sys/extattr.h, [HAVE_XATTR=1])
+    AC_CHECK_HEADERS(sys/xattr.h, [HAVE_XATTR=1]
+        [AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <sys/xattr.h>]], [[getxattr("", "", "", 0, 0, 0);]])],
+            [AC_DEFINE(XATTR_ADDITIONAL_OPTIONS, 1, [Define if xattr functions take additional arguments (Mac OS X)])])])
+fi
+if test "x$with_xattr" = "xyes"
+then
+    WINE_ERROR_WITH(xattr,[test "x$HAVE_XATTR" = "x"],[xattr ${notice_platform}development files \
+not found. Wine will be built without extended attribute support, which probably isn't what you \
+want. You will need to install ${notice_platform}development packages of libattr at the very least.])
+fi
 
 dnl **** Check for working dll ****
 
@@ -2159,18 +2175,22 @@ AC_CHECK_FUNCS(\
 	pipe2 \
 	poll \
 	port_create \
+	ppoll \
 	prctl \
 	pread \
 	proc_pidinfo \
 	pwrite \
 	readlink \
+	renameat \
+	renameat2 \
 	sched_yield \
 	setproctitle \
 	setprogname \
 	sigprocmask \
 	symlink \
 	tcdrain \
-	thr_kill2
+	thr_kill2 \
+	utimensat
 )
 CFLAGS="$ac_save_CFLAGS"
 
@@ -2210,6 +2230,16 @@ case $host_os in
     LIBS=$ac_save_LIBS
     ;;
 esac
+
+dnl Check for shm_open which may be in -lrt
+if test "$ac_cv_header_sys_mman_h" = "yes" -a "x$RT_LIBS" = "x"
+then
+    ac_save_LIBS=$LIBS
+    AC_SEARCH_LIBS(shm_open, rt,
+                   [AC_DEFINE(HAVE_SHM_OPEN, 1, [Define to 1 if you have the `shm_open' function.])
+                    test "$ac_res" = "none required" || AC_SUBST(RT_LIBS,"$ac_res")])
+fi
+LIBS=$ac_save_LIBS
 
 dnl **** Check for OpenLDAP ***
 if test "x$with_ldap" != "xno"

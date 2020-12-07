@@ -814,7 +814,6 @@ infodir
 docdir
 oldincludedir
 includedir
-runstatedir
 localstatedir
 sharedstatedir
 sysconfdir
@@ -887,6 +886,7 @@ with_usb
 with_v4l2
 with_vkd3d
 with_vulkan
+with_xattr
 with_xcomposite
 with_xcursor
 with_xfixes
@@ -1980,7 +1980,6 @@ datadir='${datarootdir}'
 sysconfdir='${prefix}/etc'
 sharedstatedir='${prefix}/com'
 localstatedir='${prefix}/var'
-runstatedir='${localstatedir}/run'
 includedir='${prefix}/include'
 oldincludedir='/usr/include'
 docdir='${datarootdir}/doc/${PACKAGE_TARNAME}'
@@ -2233,15 +2232,6 @@ do
   | -silent | --silent | --silen | --sile | --sil)
     silent=yes ;;
 
-  -runstatedir | --runstatedir | --runstatedi | --runstated \
-  | --runstate | --runstat | --runsta | --runst | --runs \
-  | --run | --ru | --r)
-    ac_prev=runstatedir ;;
-  -runstatedir=* | --runstatedir=* | --runstatedi=* | --runstated=* \
-  | --runstate=* | --runstat=* | --runsta=* | --runst=* | --runs=* \
-  | --run=* | --ru=* | --r=*)
-    runstatedir=$ac_optarg ;;
-
   -sbindir | --sbindir | --sbindi | --sbind | --sbin | --sbi | --sb)
     ac_prev=sbindir ;;
   -sbindir=* | --sbindir=* | --sbindi=* | --sbind=* | --sbin=* \
@@ -2379,7 +2369,7 @@ fi
 for ac_var in	exec_prefix prefix bindir sbindir libexecdir datarootdir \
 		datadir sysconfdir sharedstatedir localstatedir includedir \
 		oldincludedir docdir infodir htmldir dvidir pdfdir psdir \
-		libdir localedir mandir runstatedir
+		libdir localedir mandir
 do
   eval ac_val=\$$ac_var
   # Remove trailing slashes.
@@ -2532,7 +2522,6 @@ Fine tuning of the installation directories:
   --sysconfdir=DIR        read-only single-machine data [PREFIX/etc]
   --sharedstatedir=DIR    modifiable architecture-independent data [PREFIX/com]
   --localstatedir=DIR     modifiable single-machine data [PREFIX/var]
-  --runstatedir=DIR       modifiable per-process data [LOCALSTATEDIR/run]
   --libdir=DIR            object code libraries [EPREFIX/lib]
   --includedir=DIR        C header files [PREFIX/include]
   --oldincludedir=DIR     C header files for non-gcc [/usr/include]
@@ -2628,6 +2617,7 @@ Optional Packages:
   --without-v4l2          do not use v4l2 (video capture)
   --without-vkd3d         do not use vkd3d (Direct3D 12 support)
   --without-vulkan        do not use Vulkan
+  --without-xattr         do not use xattr (security attributes support)
   --without-xcomposite    do not use the Xcomposite extension
   --without-xcursor       do not use the Xcursor extension
   --without-xfixes        do not use Xfixes for clipboard change notifications
@@ -4178,6 +4168,12 @@ fi
 # Check whether --with-vulkan was given.
 if test "${with_vulkan+set}" = set; then :
   withval=$with_vulkan;
+fi
+
+
+# Check whether --with-xattr was given.
+if test "${with_xattr+set}" = set; then :
+  withval=$with_xattr;
 fi
 
 
@@ -7468,6 +7464,7 @@ for ac_header in \
 	sys/cdio.h \
 	sys/epoll.h \
 	sys/event.h \
+	sys/eventfd.h \
 	sys/filio.h \
 	sys/ioctl.h \
 	sys/ipc.h \
@@ -7873,6 +7870,65 @@ fi
 
 done
 
+
+if test "x$with_xattr" != "xno"
+then
+    for ac_header in attr/xattr.h sys/extattr.h
+do :
+  as_ac_Header=`$as_echo "ac_cv_header_$ac_header" | $as_tr_sh`
+ac_fn_c_check_header_mongrel "$LINENO" "$ac_header" "$as_ac_Header" "$ac_includes_default"
+if eval test \"x\$"$as_ac_Header"\" = x"yes"; then :
+  cat >>confdefs.h <<_ACEOF
+#define `$as_echo "HAVE_$ac_header" | $as_tr_cpp` 1
+_ACEOF
+ HAVE_XATTR=1
+fi
+
+done
+
+    for ac_header in sys/xattr.h
+do :
+  ac_fn_c_check_header_mongrel "$LINENO" "sys/xattr.h" "ac_cv_header_sys_xattr_h" "$ac_includes_default"
+if test "x$ac_cv_header_sys_xattr_h" = xyes; then :
+  cat >>confdefs.h <<_ACEOF
+#define HAVE_SYS_XATTR_H 1
+_ACEOF
+ HAVE_XATTR=1
+        cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+#include <sys/xattr.h>
+int
+main ()
+{
+getxattr("", "", "", 0, 0, 0);
+  ;
+  return 0;
+}
+_ACEOF
+if ac_fn_c_try_compile "$LINENO"; then :
+
+$as_echo "#define XATTR_ADDITIONAL_OPTIONS 1" >>confdefs.h
+
+fi
+rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
+fi
+
+done
+
+fi
+if test "x$with_xattr" = "xyes"
+then
+    if test "x$HAVE_XATTR" = "x"; then :
+  case "x$with_xattr" in
+  xno) ;;
+  *)   as_fn_error $? "xattr ${notice_platform}development files \
+not found. Wine will be built without extended attribute support, which probably isn't what you \
+want. You will need to install ${notice_platform}development packages of libattr at the very least.
+Use the --without-xattr option if you really want this." "$LINENO" 5 ;;
+esac
+
+fi
+fi
 
 
 DLLFLAGS="-D_REENTRANT"
@@ -17759,18 +17815,22 @@ for ac_func in \
 	pipe2 \
 	poll \
 	port_create \
+	ppoll \
 	prctl \
 	pread \
 	proc_pidinfo \
 	pwrite \
 	readlink \
+	renameat \
+	renameat2 \
 	sched_yield \
 	setproctitle \
 	setprogname \
 	sigprocmask \
 	symlink \
 	tcdrain \
-	thr_kill2
+	thr_kill2 \
+	utimensat
 
 do :
   as_ac_var=`$as_echo "ac_cv_func_$ac_func" | $as_tr_sh`
@@ -18157,6 +18217,72 @@ fi
     LIBS=$ac_save_LIBS
     ;;
 esac
+
+if test "$ac_cv_header_sys_mman_h" = "yes" -a "x$RT_LIBS" = "x"
+then
+    ac_save_LIBS=$LIBS
+    { $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing shm_open" >&5
+$as_echo_n "checking for library containing shm_open... " >&6; }
+if ${ac_cv_search_shm_open+:} false; then :
+  $as_echo_n "(cached) " >&6
+else
+  ac_func_search_save_LIBS=$LIBS
+cat confdefs.h - <<_ACEOF >conftest.$ac_ext
+/* end confdefs.h.  */
+
+/* Override any GCC internal prototype to avoid an error.
+   Use char because int might match the return type of a GCC
+   builtin and then its argument prototype would still apply.  */
+#ifdef __cplusplus
+extern "C"
+#endif
+char shm_open ();
+int
+main ()
+{
+return shm_open ();
+  ;
+  return 0;
+}
+_ACEOF
+for ac_lib in '' rt; do
+  if test -z "$ac_lib"; then
+    ac_res="none required"
+  else
+    ac_res=-l$ac_lib
+    LIBS="-l$ac_lib  $ac_func_search_save_LIBS"
+  fi
+  if ac_fn_c_try_link "$LINENO"; then :
+  ac_cv_search_shm_open=$ac_res
+fi
+rm -f core conftest.err conftest.$ac_objext \
+    conftest$ac_exeext
+  if ${ac_cv_search_shm_open+:} false; then :
+  break
+fi
+done
+if ${ac_cv_search_shm_open+:} false; then :
+
+else
+  ac_cv_search_shm_open=no
+fi
+rm conftest.$ac_ext
+LIBS=$ac_func_search_save_LIBS
+fi
+{ $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_cv_search_shm_open" >&5
+$as_echo "$ac_cv_search_shm_open" >&6; }
+ac_res=$ac_cv_search_shm_open
+if test "$ac_res" != no; then :
+  test "$ac_res" = "none required" || LIBS="$ac_res $LIBS"
+
+$as_echo "#define HAVE_SHM_OPEN 1" >>confdefs.h
+
+                    test "$ac_res" = "none required" || RT_LIBS="$ac_res"
+
+fi
+
+fi
+LIBS=$ac_save_LIBS
 
 if test "x$with_ldap" != "xno"
 then

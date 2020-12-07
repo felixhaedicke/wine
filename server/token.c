@@ -147,6 +147,7 @@ static const struct object_ops token_ops =
     no_add_queue,              /* add_queue */
     NULL,                      /* remove_queue */
     NULL,                      /* signaled */
+    NULL,                      /* get_fsync_idx */
     NULL,                      /* satisfied */
     no_signal,                 /* signal */
     no_get_fd,                 /* get_fd */
@@ -991,7 +992,7 @@ int token_check_privileges( struct token *token, int all_required,
 
     for (i = 0; i < count; i++)
     {
-        struct privilege *privilege = 
+        struct privilege *privilege =
             token_find_privilege( token, &reqprivs[i].Luid, TRUE );
 
         if (usedprivs)

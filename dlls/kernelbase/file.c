@@ -38,6 +38,7 @@
 #include "shlwapi.h"
 #include "ddk/ntddk.h"
 #include "ddk/ntddser.h"
+#include "ntifs.h"
 
 #include "kernelbase.h"
 #include "wine/exception.h"
@@ -723,6 +724,8 @@ static UINT get_nt_file_options( DWORD attributes )
         options |= FILE_RANDOM_ACCESS;
     if (attributes & FILE_FLAG_WRITE_THROUGH)
         options |= FILE_WRITE_THROUGH;
+    if (attributes & FILE_FLAG_OPEN_REPARSE_POINT)
+        options |= FILE_OPEN_REPARSE_POINT;
     return options;
 }
 
@@ -934,8 +937,106 @@ done:
  */
 BOOLEAN WINAPI /* DECLSPEC_HOTPATCH */ CreateSymbolicLinkW( LPCWSTR link, LPCWSTR target, DWORD flags )
 {
-    FIXME( "(%s %s %d): stub\n", debugstr_w(link), debugstr_w(target), flags );
-    return TRUE;
+    static INT struct_size = offsetof(REPARSE_DATA_BUFFER, SymbolicLinkReparseBuffer.PathBuffer[0]);
+    static INT header_size = offsetof(REPARSE_DATA_BUFFER, GenericReparseBuffer);
+    INT buffer_size, data_size, string_len, prefix_len;
+    WCHAR *subst_dest, *print_dest, *string;
+    REPARSE_DATA_BUFFER *buffer;
+    LPWSTR target_path = NULL;
+    BOOL is_relative, is_dir;
+    int target_path_len = 0;
+    UNICODE_STRING nt_name;
+    BOOLEAN bret = FALSE;
+    NTSTATUS status;
+    HANDLE hlink;
+    DWORD dwret;
+
+    TRACE( "(%s %s %d): stub\n", debugstr_w(link), debugstr_w(target), flags );
+
+    is_relative = (RtlDetermineDosPathNameType_U( target ) == RELATIVE_PATH);
+    is_dir = (flags & SYMBOLIC_LINK_FLAG_DIRECTORY);
+    if (is_dir && !CreateDirectoryW( link, NULL ))
+        return FALSE;
+    hlink = CreateFileW( link, GENERIC_READ | GENERIC_WRITE, 0, 0,
+                         is_dir ? OPEN_EXISTING : CREATE_NEW,
+                         FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, 0 );
+    if (hlink == INVALID_HANDLE_VALUE)
+        goto cleanup;
+    if (is_relative)
+    {
+        UNICODE_STRING nt_path;
+        int len;
+
+        status = RtlDosPathNameToNtPathName_U_WithStatus( link, &nt_path, NULL, NULL );
+        if (status != STATUS_SUCCESS)
+        {
+            SetLastError( RtlNtStatusToDosError(status) );
+            goto cleanup;
+        }
+        /* obtain the path of the link */
+        for (; nt_path.Length > 0; nt_path.Length -= sizeof(WCHAR))
+        {
+            WCHAR c = nt_path.Buffer[nt_path.Length/sizeof(WCHAR)];
+            if (c == '/' || c == '\\')
+            {
+                nt_path.Length += sizeof(WCHAR);
+                break;
+            }
+        }
+        /* append the target to the link path */
+        target_path_len = nt_path.Length / sizeof(WCHAR);
+        len = target_path_len + (lstrlenW( target ) + 1);
+        target_path = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, len*sizeof(WCHAR) );
+        lstrcpynW( target_path, nt_path.Buffer, target_path_len+1 );
+        target_path[target_path_len+1] = 0;
+        lstrcatW( target_path, target );
+        RtlFreeUnicodeString( &nt_path );
+    }
+    else
+        target_path = (LPWSTR)target;
+    status = RtlDosPathNameToNtPathName_U_WithStatus( target_path, &nt_name, NULL, NULL );
+    if (status != STATUS_SUCCESS)
+    {
+        SetLastError( RtlNtStatusToDosError(status) );
+        goto cleanup;
+    }
+    if (is_relative && _wcsnicmp( target_path, nt_name.Buffer, target_path_len ) != 0)
+    {
+        SetLastError( RtlNtStatusToDosError(status) );
+        goto cleanup;
+    }
+    prefix_len = is_relative ? 0 : strlen("\\??\\");
+    string = &nt_name.Buffer[target_path_len];
+    string_len = lstrlenW( &string[prefix_len] );
+    data_size = (prefix_len + 2 * string_len + 2) * sizeof(WCHAR);
+    buffer_size = struct_size + data_size;
+    buffer = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, buffer_size );
+    buffer->ReparseTag = IO_REPARSE_TAG_SYMLINK;
+    buffer->ReparseDataLength = struct_size - header_size + data_size;
+    buffer->SymbolicLinkReparseBuffer.SubstituteNameLength = (prefix_len + string_len) * sizeof(WCHAR);
+    buffer->SymbolicLinkReparseBuffer.PrintNameOffset = (prefix_len + string_len + 1) * sizeof(WCHAR);
+    buffer->SymbolicLinkReparseBuffer.PrintNameLength = string_len * sizeof(WCHAR);
+    buffer->SymbolicLinkReparseBuffer.Flags = is_relative ? SYMLINK_FLAG_RELATIVE : 0;
+    subst_dest = &buffer->SymbolicLinkReparseBuffer.PathBuffer[0];
+    print_dest = &buffer->SymbolicLinkReparseBuffer.PathBuffer[prefix_len + string_len + 1];
+    lstrcpyW( subst_dest, string );
+    lstrcpyW( print_dest, &string[prefix_len] );
+    RtlFreeUnicodeString( &nt_name );
+    bret = DeviceIoControl( hlink, FSCTL_SET_REPARSE_POINT, (LPVOID)buffer, buffer_size, NULL, 0,
+                            &dwret, 0 );
+    HeapFree( GetProcessHeap(), 0, buffer );
+
+cleanup:
+    CloseHandle( hlink );
+    if (!bret)
+    {
+        if (is_dir)
+            RemoveDirectoryW( link );
+        else
+            DeleteFileW( link );
+    }
+    if (is_relative) HeapFree( GetProcessHeap(), 0, target_path );
+    return bret;
 }
 
 
@@ -1393,6 +1494,41 @@ BOOL WINAPI DECLSPEC_HOTPATCH FindNextFileW( HANDLE handle, WIN32_FIND_DATAW *da
 
         memcpy( data->cFileName, dir_info->FileName, dir_info->FileNameLength );
         data->cFileName[dir_info->FileNameLength/sizeof(WCHAR)] = 0;
+
+        /* get reparse tag */
+        if (dir_info->FileAttributes & FILE_ATTRIBUTE_REPARSE_POINT)
+        {
+            REPARSE_DATA_BUFFER *buffer = NULL;
+            INT buffer_len;
+            HANDLE hlink;
+            DWORD dwret;
+            BOOL bret;
+            INT path_len = info->path.Length + dir_info->FileNameLength +
+                           sizeof(WCHAR);
+            WCHAR *path = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, path_len );
+
+            if (!path) break;
+
+            lstrcpynW( path, info->path.Buffer, info->path.Length/sizeof(WCHAR) + 1 );
+            lstrcatW( path, data->cFileName );
+
+            hlink = CreateFileW( path, GENERIC_READ | GENERIC_WRITE, 0, 0,
+                                 OPEN_EXISTING,
+                                 FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, 0 );
+            HeapFree( GetProcessHeap(), 0, path );
+            buffer_len = sizeof(*buffer) + 2*MAX_PATH*sizeof(WCHAR);
+            buffer = HeapAlloc( GetProcessHeap(), HEAP_ZERO_MEMORY, buffer_len );
+            if (!buffer)
+            {
+                CloseHandle( hlink );
+                break;
+            }
+            bret = DeviceIoControl( hlink, FSCTL_GET_REPARSE_POINT, NULL, 0, (LPVOID)buffer,
+                                    buffer_len, &dwret, 0 );
+            if (bret) data->dwReserved0 = buffer->ReparseTag;
+            HeapFree( GetProcessHeap(), 0, buffer );
+            CloseHandle( hlink );
+        }
 
         if (info->level != FindExInfoBasic)
         {

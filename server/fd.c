@@ -102,10 +102,15 @@
 #include "handle.h"
 #include "process.h"
 #include "request.h"
+#include "fsync.h"
 
 #include "winternl.h"
 #include "winioctl.h"
 #include "ddk/wdm.h"
+
+#if !defined(O_SYMLINK) && defined(O_PATH)
+# define O_SYMLINK (O_NOFOLLOW | O_PATH)
+#endif
 
 #if defined(HAVE_SYS_EPOLL_H) && defined(HAVE_EPOLL_CREATE)
 # include <sys/epoll.h>
@@ -169,7 +174,8 @@ struct closed_fd
     struct list entry;       /* entry in inode closed list */
     int         unix_fd;     /* the unix file descriptor */
     int         unlink;      /* whether to unlink on close: -1 - implicit FILE_DELETE_ON_CLOSE, 1 - explicit disposition */
-    char       *unix_name;   /* name to unlink on close, points to parent fd unix_name */
+    char       *unlink_name; /* name to unlink on close, points to parent fd unix_name */
+    char       *unix_name;   /* name to real file path, points to parent fd unix_name */
 };
 
 struct fd
@@ -184,6 +190,7 @@ struct fd
     unsigned int         access;      /* file access (FILE_READ_DATA etc.) */
     unsigned int         options;     /* file options (FILE_DELETE_ON_CLOSE, FILE_SYNCHRONOUS...) */
     unsigned int         sharing;     /* file sharing mode */
+    char                *unlink_name; /* file name to unlink on close */
     char                *unix_name;   /* unix file name */
     int                  unix_fd;     /* unix file descriptor */
     unsigned int         no_fd_status;/* status to return when unix_fd is -1 */
@@ -197,6 +204,7 @@ struct fd
     struct completion   *completion;  /* completion object attached to this fd */
     apc_param_t          comp_key;    /* completion key to set in completion events */
     unsigned int         comp_flags;  /* completion flags */
+    unsigned int         fsync_idx;   /* fsync shm index */
 };
 
 static void fd_dump( struct object *obj, int verbose );
@@ -210,6 +218,7 @@ static const struct object_ops fd_ops =
     no_add_queue,             /* add_queue */
     NULL,                     /* remove_queue */
     NULL,                     /* signaled */
+    NULL,                     /* get_fsync_idx */
     NULL,                     /* satisfied */
     no_signal,                /* signal */
     no_get_fd,                /* get_fd */
@@ -251,6 +260,7 @@ static const struct object_ops device_ops =
     no_add_queue,             /* add_queue */
     NULL,                     /* remove_queue */
     NULL,                     /* signaled */
+    NULL,                     /* get_fsync_idx */
     NULL,                     /* satisfied */
     no_signal,                /* signal */
     no_get_fd,                /* get_fd */
@@ -291,6 +301,7 @@ static const struct object_ops inode_ops =
     no_add_queue,             /* add_queue */
     NULL,                     /* remove_queue */
     NULL,                     /* signaled */
+    NULL,                     /* get_fsync_idx */
     NULL,                     /* satisfied */
     no_signal,                /* signal */
     no_get_fd,                /* get_fd */
@@ -333,6 +344,7 @@ static const struct object_ops file_lock_ops =
     add_queue,                  /* add_queue */
     remove_queue,               /* remove_queue */
     file_lock_signaled,         /* signaled */
+    NULL,                       /* get_fsync_idx */
     no_satisfied,               /* satisfied */
     no_signal,                  /* signal */
     no_get_fd,                  /* get_fd */
@@ -820,7 +832,7 @@ static inline void main_loop_epoll(void)
         }
         else ret = port_getn( port_fd, events, ARRAY_SIZE( events ), &nget, NULL );
 
-	if (ret == -1) break;  /* an error occurred with event completion */
+    if (ret == -1) break;  /* an error occurred with event completion */
 
         set_current_time();
 
@@ -1119,6 +1131,7 @@ static void inode_close_pending( struct inode *inode, int keep_unlinks )
         if (!keep_unlinks || !fd->unlink)  /* get rid of it unless there's an unlink pending on that file */
         {
             list_remove( ptr );
+            free( fd->unlink_name );
             free( fd->unix_name );
             free( fd );
         }
@@ -1153,12 +1166,13 @@ static void inode_destroy( struct object *obj )
         {
             /* make sure it is still the same file */
             struct stat st;
-            if (!stat( fd->unix_name, &st ) && st.st_dev == inode->device->dev && st.st_ino == inode->ino)
+            if (!lstat( fd->unlink_name, &st ) && st.st_dev == inode->device->dev && st.st_ino == inode->ino)
             {
-                if (S_ISDIR(st.st_mode)) rmdir( fd->unix_name );
-                else unlink( fd->unix_name );
+                if (S_ISDIR(st.st_mode)) rmdir( fd->unlink_name );
+                else unlink( fd->unlink_name );
             }
         }
+        free( fd->unlink_name );
         free( fd->unix_name );
         free( fd );
     }
@@ -1578,6 +1592,7 @@ static void fd_destroy( struct object *obj )
     else  /* no inode, close it right away */
     {
         if (fd->unix_fd != -1) close( fd->unix_fd );
+        free( fd->unlink_name );
         free( fd->unix_name );
     }
 }
@@ -1687,6 +1702,7 @@ static struct fd *alloc_fd_object(void)
     fd->options    = 0;
     fd->sharing    = 0;
     fd->unix_fd    = -1;
+    fd->unlink_name  = NULL;
     fd->unix_name  = NULL;
     fd->cacheable  = 0;
     fd->signaled   = 1;
@@ -1694,11 +1710,15 @@ static struct fd *alloc_fd_object(void)
     fd->poll_index = -1;
     fd->completion = NULL;
     fd->comp_flags = 0;
+    fd->fsync_idx  = 0;
     init_async_queue( &fd->read_q );
     init_async_queue( &fd->write_q );
     init_async_queue( &fd->wait_q );
     list_init( &fd->inode_entry );
     list_init( &fd->locks );
+
+    if (do_fsync())
+        fd->fsync_idx = fsync_alloc_shm( 1, 0 );
 
     if ((fd->poll_index = add_poll_user( fd )) == -1)
     {
@@ -1722,6 +1742,7 @@ struct fd *alloc_pseudo_fd( const struct fd_ops *fd_user_ops, struct object *use
     fd->access     = 0;
     fd->options    = options;
     fd->sharing    = 0;
+    fd->unlink_name  = NULL;
     fd->unix_name  = NULL;
     fd->unix_fd    = -1;
     fd->cacheable  = 0;
@@ -1731,11 +1752,16 @@ struct fd *alloc_pseudo_fd( const struct fd_ops *fd_user_ops, struct object *use
     fd->completion = NULL;
     fd->comp_flags = 0;
     fd->no_fd_status = STATUS_BAD_DEVICE_TYPE;
+    fd->fsync_idx  = 0;
     init_async_queue( &fd->read_q );
     init_async_queue( &fd->write_q );
     init_async_queue( &fd->wait_q );
     list_init( &fd->inode_entry );
     list_init( &fd->locks );
+
+    if (do_fsync())
+        fd->fsync_idx = fsync_alloc_shm( 0, 0 );
+
     return fd;
 }
 
@@ -1756,6 +1782,12 @@ struct fd *dup_fd_object( struct fd *orig, unsigned int access, unsigned int sha
         strcpy( fd->unix_name, orig->unix_name );
     }
 
+    if (orig->unlink_name)
+    {
+        if (!(fd->unlink_name = mem_alloc( strlen(orig->unlink_name) + 1 ))) goto failed;
+        strcpy( fd->unlink_name, orig->unlink_name );
+    }
+
     if (orig->inode)
     {
         struct closed_fd *closed = mem_alloc( sizeof(*closed) );
@@ -1768,6 +1800,7 @@ struct fd *dup_fd_object( struct fd *orig, unsigned int access, unsigned int sha
         }
         closed->unix_fd = fd->unix_fd;
         closed->unlink = 0;
+        closed->unlink_name = fd->unlink_name;
         closed->unix_name = fd->unix_name;
         fd->closed = closed;
         fd->inode = (struct inode *)grab_object( orig->inode );
@@ -1831,6 +1864,55 @@ char *dup_fd_name( struct fd *root, const char *name )
     return ret;
 }
 
+static void decode_symlink(char *name, int *is_dir)
+{
+    char link[MAX_PATH], *p;
+    ULONG reparse_tag;
+    int len, i;
+
+    len = readlink( name, link, sizeof(link) );
+    if (len == -1)
+        return;
+    link[len] = 0;
+    p = link;
+    /* skip past relative/absolute indication */
+    if (*p == '.')
+        p++;
+    if (*p++ != '/')
+    {
+        return;
+    }
+    /* decode the reparse tag */
+    reparse_tag = 0;
+    for (i = 0; i < sizeof(ULONG)*8; i++)
+    {
+        char c = *p++;
+        int val;
+
+        if (c == '/')
+            val = 0;
+        else if (c == '.' && *p++ == '/')
+            val = 1;
+        else
+            return;
+        reparse_tag |= (val << i);
+    }
+    /* decode the directory/file flag */
+    if (reparse_tag == IO_REPARSE_TAG_SYMLINK)
+    {
+        char c = *p++;
+
+        if (c == '/')
+            *is_dir = FALSE;
+        else if (c == '.' && *p++ == '/')
+            *is_dir = TRUE;
+        else
+            return;
+    }
+    else
+        *is_dir = TRUE;
+}
+
 /* open() wrapper that returns a struct fd with no fd user set */
 struct fd *open_fd( struct fd *root, const char *name, int flags, mode_t *mode, unsigned int access,
                     unsigned int sharing, unsigned int options )
@@ -1890,6 +1972,11 @@ struct fd *open_fd( struct fd *root, const char *name, int flags, mode_t *mode, 
     }
     else rw_mode = O_RDONLY;
 
+#if defined(O_SYMLINK)
+    if ((options & FILE_OPEN_REPARSE_POINT) && !(flags & O_CREAT))
+        flags |= O_SYMLINK;
+#endif
+
     if ((fd->unix_fd = open( name, rw_mode | (flags & ~O_TRUNC), *mode )) == -1)
     {
         /* if we tried to open a directory for write access, retry read-only */
@@ -1898,6 +1985,13 @@ struct fd *open_fd( struct fd *root, const char *name, int flags, mode_t *mode, 
             if ((access & FILE_UNIX_WRITE_ACCESS) || (flags & O_CREAT))
                 fd->unix_fd = open( name, O_RDONLY | (flags & ~(O_TRUNC | O_CREAT | O_EXCL)), *mode );
         }
+#if defined(O_SYMLINK)
+        /* if we tried to open a dangling symlink then try again with O_SYMLINK */
+        else if (errno == ENOENT)
+        {
+            fd->unix_fd = open( name, rw_mode | O_SYMLINK | (flags & ~O_TRUNC), *mode );
+        }
+#endif
 
         if (fd->unix_fd == -1)
         {
@@ -1909,21 +2003,24 @@ struct fd *open_fd( struct fd *root, const char *name, int flags, mode_t *mode, 
     fd->unix_name = NULL;
     if ((path = dup_fd_name( root, name )))
     {
+        fd->unlink_name = path;
         fd->unix_name = realpath( path, NULL );
-        free( path );
+        if (!fd->unix_name) fd->unix_name = dup_fd_name( root, name ); /* dangling symlink */
     }
 
     closed_fd->unix_fd = fd->unix_fd;
     closed_fd->unlink = 0;
+    closed_fd->unlink_name = fd->unlink_name;
     closed_fd->unix_name = fd->unix_name;
-    fstat( fd->unix_fd, &st );
+    lstat( fd->unlink_name, &st );
     *mode = st.st_mode;
 
     /* only bother with an inode for normal files and directories */
-    if (S_ISREG(st.st_mode) || S_ISDIR(st.st_mode))
+    if (S_ISREG(st.st_mode) || S_ISDIR(st.st_mode) || S_ISLNK(st.st_mode))
     {
         unsigned int err;
         struct inode *inode = get_inode( st.st_dev, st.st_ino, fd->unix_fd );
+        int is_link = S_ISLNK(st.st_mode), is_dir;
 
         if (!inode)
         {
@@ -1938,13 +2035,20 @@ struct fd *open_fd( struct fd *root, const char *name, int flags, mode_t *mode, 
         list_add_head( &inode->open, &fd->inode_entry );
         closed_fd = NULL;
 
+        /* decode symlink type */
+        fstat( fd->unix_fd, &st );
+        *mode = st.st_mode;
+        is_dir = S_ISDIR(st.st_mode);
+        if (is_link)
+            decode_symlink(fd->unlink_name, &is_dir);
+
         /* check directory options */
-        if ((options & FILE_DIRECTORY_FILE) && !S_ISDIR(st.st_mode))
+        if ((options & FILE_DIRECTORY_FILE) && !is_dir)
         {
             set_error( STATUS_NOT_A_DIRECTORY );
             goto error;
         }
-        if ((options & FILE_NON_DIRECTORY_FILE) && S_ISDIR(st.st_mode))
+        if ((options & FILE_NON_DIRECTORY_FILE) && is_dir)
         {
             set_error( STATUS_FILE_IS_A_DIRECTORY );
             goto error;
@@ -2061,6 +2165,9 @@ void set_fd_signaled( struct fd *fd, int signaled )
     if (fd->comp_flags & FILE_SKIP_SET_EVENT_ON_HANDLE) return;
     fd->signaled = signaled;
     if (signaled) wake_up( fd->user, 0 );
+
+    if (do_fsync() && !signaled)
+        fsync_clear( fd->user );
 }
 
 /* handler for close_handle that refuses to close fd-associated handles in other processes */
@@ -2088,6 +2195,15 @@ int default_fd_signaled( struct object *obj, struct wait_queue_entry *entry )
 {
     struct fd *fd = get_obj_fd( obj );
     int ret = fd->signaled;
+    release_object( fd );
+    return ret;
+}
+
+unsigned int default_fd_get_fsync_idx( struct object *obj, enum fsync_type *type )
+{
+    struct fd *fd = get_obj_fd( obj );
+    unsigned int ret = fd->fsync_idx;
+    *type = FSYNC_MANUAL_SERVER;
     release_object( fd );
     return ret;
 }
@@ -2414,7 +2530,7 @@ static void set_fd_disposition( struct fd *fd, int unlink )
             file_set_error();
             return;
         }
-        if (S_ISREG( st.st_mode ))  /* can't unlink files we don't have permission to write */
+        if (S_ISREG( st.st_mode ) || S_ISLNK( st.st_mode ))  /* can't unlink files we don't have permission to write */
         {
             if (!(st.st_mode & (S_IWUSR | S_IWGRP | S_IWOTH)))
             {
@@ -2563,10 +2679,11 @@ static void set_fd_name( struct fd *fd, struct fd *root, const char *nameptr,
         fchmod( fd->unix_fd, st.st_mode );
     }
 
+    free( fd->unlink_name );
     free( fd->unix_name );
+    fd->closed->unlink_name = fd->unlink_name = name;
     fd->closed->unix_name = fd->unix_name = realpath( name, NULL );
-    free( name );
-    if (!fd->unix_name)
+    if (!fd->unlink_name || !fd->unix_name)
         set_error( STATUS_NO_MEMORY );
     return;
 
@@ -2654,11 +2771,12 @@ DECL_HANDLER(get_handle_unix_name)
 
     if ((fd = get_handle_fd_obj( current->process, req->handle, 0 )))
     {
-        if (fd->unix_name)
+        char *name = (req->nofollow ? fd->unlink_name : fd->unix_name);
+        if (name)
         {
-            data_size_t name_len = strlen( fd->unix_name );
+            data_size_t name_len = strlen( name );
             reply->name_len = name_len;
-            if (name_len <= get_reply_max_size()) set_reply_data( fd->unix_name, name_len );
+            if (name_len <= get_reply_max_size()) set_reply_data( name, name_len );
             else set_error( STATUS_BUFFER_OVERFLOW );
         }
         else set_error( STATUS_OBJECT_TYPE_MISMATCH );

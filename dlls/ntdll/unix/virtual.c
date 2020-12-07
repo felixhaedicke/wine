@@ -2556,6 +2556,7 @@ static void init_teb( TEB *teb, PEB *peb )
     thread_data->reply_fd   = -1;
     thread_data->wait_fd[0] = -1;
     thread_data->wait_fd[1] = -1;
+    thread_data->fsync_apc_futex = NULL;
     list_add_head( &teb_list, &thread_data->entry );
 }
 
@@ -4139,8 +4140,8 @@ NTSTATUS WINAPI NtQuerySection( HANDLE handle, SECTION_INFORMATION_CLASS class, 
         if (size < sizeof(SECTION_IMAGE_INFORMATION)) return STATUS_INFO_LENGTH_MISMATCH;
         break;
     default:
-	FIXME( "class %u not implemented\n", class );
-	return STATUS_NOT_IMPLEMENTED;
+    FIXME( "class %u not implemented\n", class );
+    return STATUS_NOT_IMPLEMENTED;
     }
     if (!ptr) return STATUS_ACCESS_VIOLATION;
 

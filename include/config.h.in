@@ -49,6 +49,9 @@
 /* Define to 1 if you have the `atanhf' function. */
 #undef HAVE_ATANHF
 
+/* Define to 1 if you have the <attr/xattr.h> header file. */
+#undef HAVE_ATTR_XATTR_H
+
 /* Define to 1 if you have the <AudioToolbox/AudioConverter.h> header file. */
 #undef HAVE_AUDIOTOOLBOX_AUDIOCONVERTER_H
 
@@ -645,6 +648,9 @@
 /* Define to 1 if you have the <port.h> header file. */
 #undef HAVE_PORT_H
 
+/* Define to 1 if you have the `ppoll' function. */
+#undef HAVE_PPOLL
+
 /* Define to 1 if you have the `prctl' function. */
 #undef HAVE_PRCTL
 
@@ -689,6 +695,12 @@
 
 /* Define to 1 if you have the `remquof' function. */
 #undef HAVE_REMQUOF
+
+/* Define to 1 if you have the `renameat' function. */
+#undef HAVE_RENAMEAT
+
+/* Define to 1 if you have the `renameat2' function. */
+#undef HAVE_RENAMEAT2
 
 /* Define to 1 if the system has the type `request_sense'. */
 #undef HAVE_REQUEST_SENSE
@@ -752,6 +764,9 @@
 
 /* Define to 1 if `interface_id' is a member of `sg_io_hdr_t'. */
 #undef HAVE_SG_IO_HDR_T_INTERFACE_ID
+
+/* Define to 1 if you have the `shm_open' function. */
+#undef HAVE_SHM_OPEN
 
 /* Define if sigaddset is supported */
 #undef HAVE_SIGADDSET
@@ -914,8 +929,14 @@
 /* Define to 1 if you have the <sys/epoll.h> header file. */
 #undef HAVE_SYS_EPOLL_H
 
+/* Define to 1 if you have the <sys/eventfd.h> header file. */
+#undef HAVE_SYS_EVENTFD_H
+
 /* Define to 1 if you have the <sys/event.h> header file. */
 #undef HAVE_SYS_EVENT_H
+
+/* Define to 1 if you have the <sys/extattr.h> header file. */
+#undef HAVE_SYS_EXTATTR_H
 
 /* Define to 1 if you have the <sys/filio.h> header file. */
 #undef HAVE_SYS_FILIO_H
@@ -1052,6 +1073,9 @@
 /* Define to 1 if you have the <sys/wait.h> header file. */
 #undef HAVE_SYS_WAIT_H
 
+/* Define to 1 if you have the <sys/xattr.h> header file. */
+#undef HAVE_SYS_XATTR_H
+
 /* Define to 1 if you have the `tcdrain' function. */
 #undef HAVE_TCDRAIN
 
@@ -1081,6 +1105,9 @@
 
 /* Define to 1 if you have the <unistd.h> header file. */
 #undef HAVE_UNISTD_H
+
+/* Define to 1 if you have the `utimensat' function. */
+#undef HAVE_UTIMENSAT
 
 /* Define to 1 if you have the <utime.h> header file. */
 #undef HAVE_UTIME_H
@@ -1345,6 +1372,9 @@
 
 /* Define to 1 if you have the ANSI C header files. */
 #undef STDC_HEADERS
+
+/* Define if xattr functions take additional arguments (Mac OS X) */
+#undef XATTR_ADDITIONAL_OPTIONS
 
 /* Define to 1 if the X Window System is missing or not being used. */
 #undef X_DISPLAY_MISSING

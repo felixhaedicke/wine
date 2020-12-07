@@ -1580,6 +1580,8 @@ struct get_handle_unix_name_request
 {
     struct request_header __header;
     obj_handle_t   handle;
+    int            nofollow;
+    char __pad_20[4];
 };
 struct get_handle_unix_name_reply
 {
@@ -1608,6 +1610,7 @@ enum server_fd_type
 {
     FD_TYPE_INVALID,
     FD_TYPE_FILE,
+    FD_TYPE_SYMLINK,
     FD_TYPE_DIR,
     FD_TYPE_SOCKET,
     FD_TYPE_SERIAL,
@@ -5347,6 +5350,91 @@ struct resume_process_reply
     struct reply_header __header;
 };
 
+enum fsync_type
+{
+    FSYNC_SEMAPHORE = 1,
+    FSYNC_AUTO_EVENT,
+    FSYNC_MANUAL_EVENT,
+    FSYNC_MUTEX,
+    FSYNC_AUTO_SERVER,
+    FSYNC_MANUAL_SERVER,
+    FSYNC_QUEUE,
+};
+
+
+struct create_fsync_request
+{
+    struct request_header __header;
+    unsigned int access;
+    int low;
+    int high;
+    int type;
+    /* VARARG(objattr,object_attributes); */
+    char __pad_28[4];
+};
+struct create_fsync_reply
+{
+    struct reply_header __header;
+    obj_handle_t handle;
+    int type;
+    unsigned int shm_idx;
+    char __pad_20[4];
+};
+
+
+struct open_fsync_request
+{
+    struct request_header __header;
+    unsigned int access;
+    unsigned int attributes;
+    obj_handle_t rootdir;
+    int          type;
+    /* VARARG(name,unicode_str); */
+    char __pad_28[4];
+};
+struct open_fsync_reply
+{
+    struct reply_header __header;
+    obj_handle_t handle;
+    int          type;
+    unsigned int shm_idx;
+    char __pad_20[4];
+};
+
+
+struct get_fsync_idx_request
+{
+    struct request_header __header;
+    obj_handle_t handle;
+};
+struct get_fsync_idx_reply
+{
+    struct reply_header __header;
+    int          type;
+    unsigned int shm_idx;
+};
+
+struct fsync_msgwait_request
+{
+    struct request_header __header;
+    int          in_msgwait;
+};
+struct fsync_msgwait_reply
+{
+    struct reply_header __header;
+};
+
+struct get_fsync_apc_idx_request
+{
+    struct request_header __header;
+    char __pad_12[4];
+};
+struct get_fsync_apc_idx_reply
+{
+    struct reply_header __header;
+    unsigned int shm_idx;
+    char __pad_12[4];
+};
 
 enum request
 {
@@ -5624,8 +5712,14 @@ enum request
     REQ_terminate_job,
     REQ_suspend_process,
     REQ_resume_process,
+    REQ_create_fsync,
+    REQ_open_fsync,
+    REQ_get_fsync_idx,
+    REQ_fsync_msgwait,
+    REQ_get_fsync_apc_idx,
     REQ_NB_REQUESTS
 };
+
 
 union generic_request
 {
@@ -5905,6 +5999,11 @@ union generic_request
     struct terminate_job_request terminate_job_request;
     struct suspend_process_request suspend_process_request;
     struct resume_process_request resume_process_request;
+    struct create_fsync_request create_fsync_request;
+    struct open_fsync_request open_fsync_request;
+    struct get_fsync_idx_request get_fsync_idx_request;
+    struct fsync_msgwait_request fsync_msgwait_request;
+    struct get_fsync_apc_idx_request get_fsync_apc_idx_request;
 };
 union generic_reply
 {
@@ -6184,11 +6283,16 @@ union generic_reply
     struct terminate_job_reply terminate_job_reply;
     struct suspend_process_reply suspend_process_reply;
     struct resume_process_reply resume_process_reply;
+    struct create_fsync_reply create_fsync_reply;
+    struct open_fsync_reply open_fsync_reply;
+    struct get_fsync_idx_reply get_fsync_idx_reply;
+    struct fsync_msgwait_reply fsync_msgwait_reply;
+    struct get_fsync_apc_idx_reply get_fsync_apc_idx_reply;
 };
 
 /* ### protocol_version begin ### */
 
-#define SERVER_PROTOCOL_VERSION 652
+#define SERVER_PROTOCOL_VERSION 653
 
 /* ### protocol_version end ### */
 

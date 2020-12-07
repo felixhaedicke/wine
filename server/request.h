@@ -393,6 +393,11 @@ DECL_HANDLER(get_job_info);
 DECL_HANDLER(terminate_job);
 DECL_HANDLER(suspend_process);
 DECL_HANDLER(resume_process);
+DECL_HANDLER(create_fsync);
+DECL_HANDLER(open_fsync);
+DECL_HANDLER(get_fsync_idx);
+DECL_HANDLER(fsync_msgwait);
+DECL_HANDLER(get_fsync_apc_idx);
 
 #ifdef WANT_REQUEST_HANDLERS
 
@@ -673,6 +678,11 @@ static const req_handler req_handlers[REQ_NB_REQUESTS] =
     (req_handler)req_terminate_job,
     (req_handler)req_suspend_process,
     (req_handler)req_resume_process,
+    (req_handler)req_create_fsync,
+    (req_handler)req_open_fsync,
+    (req_handler)req_get_fsync_idx,
+    (req_handler)req_fsync_msgwait,
+    (req_handler)req_get_fsync_apc_idx,
 };
 
 C_ASSERT( sizeof(abstime_t) == 8 );
@@ -1001,7 +1011,8 @@ C_ASSERT( sizeof(struct alloc_file_handle_request) == 24 );
 C_ASSERT( FIELD_OFFSET(struct alloc_file_handle_reply, handle) == 8 );
 C_ASSERT( sizeof(struct alloc_file_handle_reply) == 16 );
 C_ASSERT( FIELD_OFFSET(struct get_handle_unix_name_request, handle) == 12 );
-C_ASSERT( sizeof(struct get_handle_unix_name_request) == 16 );
+C_ASSERT( FIELD_OFFSET(struct get_handle_unix_name_request, nofollow) == 16 );
+C_ASSERT( sizeof(struct get_handle_unix_name_request) == 24 );
 C_ASSERT( FIELD_OFFSET(struct get_handle_unix_name_reply, name_len) == 8 );
 C_ASSERT( sizeof(struct get_handle_unix_name_reply) == 16 );
 C_ASSERT( FIELD_OFFSET(struct get_handle_fd_request, handle) == 12 );
@@ -2234,6 +2245,34 @@ C_ASSERT( FIELD_OFFSET(struct suspend_process_request, handle) == 12 );
 C_ASSERT( sizeof(struct suspend_process_request) == 16 );
 C_ASSERT( FIELD_OFFSET(struct resume_process_request, handle) == 12 );
 C_ASSERT( sizeof(struct resume_process_request) == 16 );
+C_ASSERT( FIELD_OFFSET(struct create_fsync_request, access) == 12 );
+C_ASSERT( FIELD_OFFSET(struct create_fsync_request, low) == 16 );
+C_ASSERT( FIELD_OFFSET(struct create_fsync_request, high) == 20 );
+C_ASSERT( FIELD_OFFSET(struct create_fsync_request, type) == 24 );
+C_ASSERT( sizeof(struct create_fsync_request) == 32 );
+C_ASSERT( FIELD_OFFSET(struct create_fsync_reply, handle) == 8 );
+C_ASSERT( FIELD_OFFSET(struct create_fsync_reply, type) == 12 );
+C_ASSERT( FIELD_OFFSET(struct create_fsync_reply, shm_idx) == 16 );
+C_ASSERT( sizeof(struct create_fsync_reply) == 24 );
+C_ASSERT( FIELD_OFFSET(struct open_fsync_request, access) == 12 );
+C_ASSERT( FIELD_OFFSET(struct open_fsync_request, attributes) == 16 );
+C_ASSERT( FIELD_OFFSET(struct open_fsync_request, rootdir) == 20 );
+C_ASSERT( FIELD_OFFSET(struct open_fsync_request, type) == 24 );
+C_ASSERT( sizeof(struct open_fsync_request) == 32 );
+C_ASSERT( FIELD_OFFSET(struct open_fsync_reply, handle) == 8 );
+C_ASSERT( FIELD_OFFSET(struct open_fsync_reply, type) == 12 );
+C_ASSERT( FIELD_OFFSET(struct open_fsync_reply, shm_idx) == 16 );
+C_ASSERT( sizeof(struct open_fsync_reply) == 24 );
+C_ASSERT( FIELD_OFFSET(struct get_fsync_idx_request, handle) == 12 );
+C_ASSERT( sizeof(struct get_fsync_idx_request) == 16 );
+C_ASSERT( FIELD_OFFSET(struct get_fsync_idx_reply, type) == 8 );
+C_ASSERT( FIELD_OFFSET(struct get_fsync_idx_reply, shm_idx) == 12 );
+C_ASSERT( sizeof(struct get_fsync_idx_reply) == 16 );
+C_ASSERT( FIELD_OFFSET(struct fsync_msgwait_request, in_msgwait) == 12 );
+C_ASSERT( sizeof(struct fsync_msgwait_request) == 16 );
+C_ASSERT( sizeof(struct get_fsync_apc_idx_request) == 16 );
+C_ASSERT( FIELD_OFFSET(struct get_fsync_apc_idx_reply, shm_idx) == 8 );
+C_ASSERT( sizeof(struct get_fsync_apc_idx_reply) == 16 );
 
 #endif  /* WANT_REQUEST_HANDLERS */
 
