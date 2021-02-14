@@ -1215,7 +1215,8 @@ static DWORD cert_get_name_from_rdn_attr(DWORD encodingType,
         PCERT_RDN_ATTR nameAttr;
 
         if (!oid)
-            oid = szOID_RSA_emailAddr;
+            //oid = szOID_RSA_emailAddr;
+            oid = szOID_COMMON_NAME;
         nameAttr = CertFindRDNAttr(oid, nameInfo);
         if (nameAttr)
             ret = CertRDNValueToStrW(nameAttr->dwValueType, &nameAttr->Value,
